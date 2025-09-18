@@ -21,7 +21,18 @@ const DataDashboard = () => {
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const [pageSize] = useState(10); // Records per page
+  const [originalData, setOriginalData] = useState(null);
 
+  const [searchTerm, setSearchTerm] = useState("");
+
+ const handleSearch = () => {
+  fetchData(
+    datasets.find((d) => d.id === selectedCard)?.endpoint,
+    selectedCard,
+    0,
+    searchTerm
+  );
+};
 
   // Configuration for your 6 datasets
   const datasets = [
@@ -87,7 +98,7 @@ const DataDashboard = () => {
     },
   ];
 
-  const fetchData = async (endpoint, cardId, page = 0) => {
+  const fetchData = async (endpoint, cardId, page = 0,keyword = "") => {
     setLoading(true);
     setError(null);
     setSelectedCard(cardId);
@@ -95,7 +106,7 @@ const DataDashboard = () => {
     try {
       // Replace with your actual Spring Boot backend URL
 
-      const paginatedEndpoint = `${endpoint}?page=${page}&size=${pageSize}`;
+      const paginatedEndpoint = `${endpoint}?page=${page}&size=${pageSize}${keyword ?`&keyword=${keyword}` : ""}`;
 
       const response = await fetch(
         `http://localhost:8090${paginatedEndpoint}`,
@@ -118,12 +129,14 @@ const DataDashboard = () => {
       if (result.content && Array.isArray(result.content)) {
         // Spring Boot Page response format
         setData(result.content);
+        setOriginalData(result.content);
         setTotalPages(result.totalPages);
         setTotalElements(result.totalElements);
         setCurrentPage(result.currentPage);
       } else {
         // Single object or other format
         setData([result]);
+        setOriginalData([result]);
         setTotalPages(1);
         setTotalElements(1);
         setCurrentPage(0);
@@ -137,13 +150,13 @@ const DataDashboard = () => {
   };
 
   useEffect(() => {
-    if ((data || error)) {
+    if (data || error) {
       const section = document.getElementById("data-display");
       if (section) {
         section.scrollIntoView({ behavior: "smooth" });
       }
     }
-  }, [data, error]); 
+  }, [data, error]);
 
   const handleCardClick = (dataset) => {
     fetchData(dataset.endpoint, dataset.id);
@@ -152,87 +165,118 @@ const DataDashboard = () => {
   const handlePageChange = (newPage) => {
     const dataset = datasets.find((d) => d.id === selectedCard);
     if (dataset) {
-      fetchData(dataset.endpoint, selectedCard, newPage);
+      fetchData(dataset.endpoint, selectedCard, newPage, searchTerm);
     }
+  };
+
+  // Sort Function By Country name
+  const getCountryName = (row) => {
+    return (
+      row["country_region"] ||
+      row["Country"] ||
+      row["country"] ||
+      row["country region"] ||
+      row["country/region"] ||
+      row["Country Region"] || // handles key with space
+      ""
+    );
+  };
+
+  const handleSortChange = (e) => {
+    const value = e.target.value;
+
+    if (value === "default") {
+      setData(originalData); // reset to original order
+      return;
+    }
+
+    const sorted = [...data].sort((a, b) => {
+      const countryA = getCountryName(a).toLowerCase();
+      const countryB = getCountryName(b).toLowerCase();
+
+      if (countryA < countryB) return value === "asc" ? -1 : 1;
+      if (countryA > countryB) return value === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    setData(sorted);
   };
 
   const renderTableHeaders = (dataArray) => {
     if (!dataArray || dataArray.length === 0) return null;
 
     const firstItem = dataArray[0];
-   return (
-    <>
-      {Object.keys(firstItem).map((key) => (
-        <th
-          key={key}
-          className="px-6 py-4 text-left text-xs font-semibold text-purple-300 uppercase tracking-wider border-b border-purple-500/30"
-        >
-          {key
-            .replace(/_/g, " ")
-            .replace(/([A-Z])/g, " $1")
-            .trim()}
-        </th>
-      ))}
+    return (
+      <>
+        {Object.keys(firstItem).map((key) => (
+          <th
+            key={key}
+            className="px-6 py-4 text-left text-xs font-semibold text-purple-300 uppercase tracking-wider border-b border-purple-500/30"
+          >
+            {key
+              .replace(/_/g, " ")
+              .replace(/([A-Z])/g, " $1")
+              .trim()}
+          </th>
+        ))}
 
-      {/* Add extra headers only if datasetId = 1 */}
-      {selectedCard === 1 && (
-        <>
-          <th className="px-6 py-4 text-left text-xs font-semibold text-red-400 uppercase tracking-wider border-b border-purple-500/30">
-            Death %
-          </th>
-          <th className="px-6 py-4 text-left text-xs font-semibold text-green-400 uppercase tracking-wider border-b border-purple-500/30">
-            Recovered %
-          </th>
-        </>
-      )}
-    </>
-  );
-};
+        {/* Add extra headers only if datasetId = 1 */}
+        {selectedCard === 1 && (
+          <>
+            <th className="px-6 py-4 text-left text-xs font-semibold text-red-400 uppercase tracking-wider border-b border-purple-500/30">
+              Death %
+            </th>
+            <th className="px-6 py-4 text-left text-xs font-semibold text-green-400 uppercase tracking-wider border-b border-purple-500/30">
+              Recovered %
+            </th>
+          </>
+        )}
+      </>
+    );
+  };
   const renderTableRows = (dataArray) => {
     if (!dataArray || dataArray.length === 0) return null;
 
-   return dataArray.map((item, index) => {
-    const deathPercentage =
-       selectedCard === 1 && item.confirmed && item.deaths
-        ? ((item.deaths / item.confirmed) * 100).toFixed(2) + "%"
-        : "-";
+    return dataArray.map((item, index) => {
+      const deathPercentage =
+        selectedCard === 1 && item.confirmed && item.deaths
+          ? ((item.deaths / item.confirmed) * 100).toFixed(2) + "%"
+          : "-";
 
-    const recoveredPercentage =
-      selectedCard === 1 && item.confirmed && item.recovered
-        ? ((item.recovered / item.confirmed) * 100).toFixed(2) + "%"
-        : "-";
+      const recoveredPercentage =
+        selectedCard === 1 && item.confirmed && item.recovered
+          ? ((item.recovered / item.confirmed) * 100).toFixed(2) + "%"
+          : "-";
 
-    return (
-      <tr
-        key={index}
-        className="hover:bg-white/5 transition-colors duration-200"
-      >
-        {Object.values(item).map((value, valueIndex) => (
-          <td
-            key={valueIndex}
-            className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 border-b border-gray-700/50"
-          >
-            {value !== null && value !== undefined ? String(value) : "-"}
-          </td>
-        ))}
-
-        {/* Extra cells only for dataset id=1 */}
-        {selectedCard === 1 && (
-          <>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-red-400 font-semibold border-b border-gray-700/50">
-              {deathPercentage}
+      return (
+        <tr
+          key={index}
+          className="hover:bg-white/5 transition-colors duration-200"
+        >
+          {Object.values(item).map((value, valueIndex) => (
+            <td
+              key={valueIndex}
+              className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 border-b border-gray-700/50"
+            >
+              {value !== null && value !== undefined ? String(value) : "-"}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-green-400 font-semibold border-b border-gray-700/50">
-              {recoveredPercentage}
-            </td>
-          </>
-        )}
+          ))}
 
-      </tr>
-    );
-  });
-};
-
+          {/* Extra cells only for dataset id=1 */}
+          {selectedCard === 1 && (
+            <>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-red-400 font-semibold border-b border-gray-700/50">
+                {deathPercentage}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-green-400 font-semibold border-b border-gray-700/50">
+                {recoveredPercentage}
+              </td>
+            </>
+          )}
+        </tr>
+      );
+    });
+  };
 
   const exportToCSV = () => {
     if (!data || data.length === 0) return;
@@ -388,7 +432,33 @@ const DataDashboard = () => {
                       >
                         Clear Data
                       </button>
+
+                      <select
+                        onChange={handleSortChange}
+                        className="px-4 py-2 bg-purple-500/20 text-purple-300 rounded-lg hover:bg-purple-500/30 transition-colors text-sm"
+                      >
+                        <option value="default">Default</option>
+                        <option value="asc">Sort by Country (A → Z)</option>
+                        <option value="desc">Sort by Country (Z → A)</option>
+                      </select>
                     </div>
+                  </div>
+
+                  {/* Search bar */}
+                  <div className="mb-4 flex justify-end space-x-2">
+                    <input
+                      type="text"
+                      placeholder="Search by country"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="px-4 py-2 rounded-lg border border-gray-600 bg-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <button
+                      onClick={handleSearch}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      Search
+                    </button>
                   </div>
 
                   {/* Data Table */}
